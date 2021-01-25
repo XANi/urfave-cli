@@ -202,6 +202,20 @@ func normalizeFlags(flags []Flag, set *flag.FlagSet) error {
 	return nil
 }
 
+func deduplicateFlags(flags []Flag) ([]Flag) {
+	// using list of indexes to skip to preserve order
+	dedupedFlags := make([]Flag,0)
+	flagMap := make(map[string]bool)
+	for _, f := range flags {
+		if _, ok := flagMap[f.String()]; !ok {
+			flagMap[f.String()] = true
+			dedupedFlags = append(dedupedFlags,f)
+		}
+	}
+
+	return dedupedFlags
+
+}
 func makeFlagNameVisitor(names *[]string) func(*flag.Flag) {
 	return func(f *flag.Flag) {
 		nameParts := strings.Split(f.Name, ",")

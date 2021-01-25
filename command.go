@@ -52,7 +52,10 @@ type Command struct {
 	// single-character bool arguments into one
 	// i.e. foobar -o -v -> foobar -ov
 	UseShortOptionHandling bool
-
+	// Allow duplicate arguments if they have the same definition
+	AllowDuplicateArgs bool
+	// Relax ordering requirements for arguments inherited from parent subcommands. Implies `AllowDuplicateArgs`
+	RelaxedArgsOrdering bool
 	// Full name of command for help, defaults to full command name, including parent commands.
 	HelpName        string
 	commandNamePath []string
@@ -91,6 +94,13 @@ func (c *Command) FullName() string {
 // Run invokes the command given the context, parses ctx.Args() to generate command-specific flags
 func (c *Command) Run(ctx *Context) (err error) {
 	if len(c.Subcommands) > 0 {
+		for idx := range c.Subcommands{
+			c.Subcommands[idx].AllowDuplicateArgs = c.AllowDuplicateArgs
+			if c.RelaxedArgsOrdering {
+				c.Subcommands[idx].RelaxedArgsOrdering = c.RelaxedArgsOrdering
+				c.Subcommands[idx].Flags = deduplicateFlags(append(c.Flags,c.Subcommands[idx].Flags...))
+			}
+		}
 		return c.startApp(ctx)
 	}
 
@@ -101,6 +111,9 @@ func (c *Command) Run(ctx *Context) (err error) {
 
 	if ctx.App.UseShortOptionHandling {
 		c.UseShortOptionHandling = true
+	}
+	if c.AllowDuplicateArgs || c.RelaxedArgsOrdering {
+		c.Flags = deduplicateFlags(c.Flags)
 	}
 
 	set, err := c.parseFlags(ctx.Args(), ctx.shellComplete)
@@ -177,6 +190,7 @@ func (c *Command) useShortOptionHandling() bool {
 }
 
 func (c *Command) parseFlags(args Args, shellComplete bool) (*flag.FlagSet, error) {
+
 	set, err := c.newFlagSet()
 	if err != nil {
 		return nil, err
@@ -247,6 +261,8 @@ func (c *Command) startApp(ctx *Context) error {
 	app.ErrWriter = ctx.App.ErrWriter
 	app.ExitErrHandler = ctx.App.ExitErrHandler
 	app.UseShortOptionHandling = ctx.App.UseShortOptionHandling
+	app.AllowDuplicateArgs = ctx.App.AllowDuplicateArgs
+	app.RelaxedArgsOrdering = ctx.App.RelaxedArgsOrdering
 
 	app.categories = newCommandCategories()
 	for _, command := range c.Subcommands {

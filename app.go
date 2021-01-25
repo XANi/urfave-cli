@@ -94,6 +94,10 @@ type App struct {
 	// single-character bool arguments into one
 	// i.e. foobar -o -v -> foobar -ov
 	UseShortOptionHandling bool
+	// Allow duplicated arguments in subcommands if aliases and description are the same
+	AllowDuplicateArgs bool
+	// Relax ordering requirements for arguments inherited from parent subcommands. Implies `AllowDuplicateArgs`
+	RelaxedArgsOrdering bool
 
 	didSetup bool
 }
@@ -181,6 +185,11 @@ func (a *App) Setup() {
 		if c.HelpName == "" {
 			c.HelpName = fmt.Sprintf("%s %s", a.HelpName, c.Name)
 		}
+		c.AllowDuplicateArgs = a.AllowDuplicateArgs
+		if c.RelaxedArgsOrdering {
+			c.RelaxedArgsOrdering = a.RelaxedArgsOrdering
+			c.Flags = deduplicateFlags(append(a.Flags,c.Flags...))
+		}
 		newCommands = append(newCommands, c)
 	}
 	a.Commands = newCommands
@@ -244,6 +253,9 @@ func (a *App) RunContext(ctx context.Context, arguments []string) (err error) {
 	}
 
 	err = parseIter(set, a, arguments[1:], shellComplete)
+	if a.AllowDuplicateArgs || a.RelaxedArgsOrdering {
+		a.Flags = deduplicateFlags(a.Flags)
+	}
 	nerr := normalizeFlags(a.Flags, set)
 	context := NewContext(a, set, &Context{Context: ctx})
 	if nerr != nil {
@@ -306,9 +318,15 @@ func (a *App) RunContext(ctx context.Context, arguments []string) (err error) {
 	}
 
 	args := context.Args()
+
 	if args.Present() {
 		name := args.First()
 		c := a.Command(name)
+		c.AllowDuplicateArgs = a.AllowDuplicateArgs
+		if a.RelaxedArgsOrdering {
+			c.RelaxedArgsOrdering = a.RelaxedArgsOrdering
+			c.Flags = deduplicateFlags(append(a.Flags,c.Flags...))
+		}
 		if c != nil {
 			return c.Run(context)
 		}
@@ -351,13 +369,17 @@ func (a *App) RunAsSubcommand(ctx *Context) (err error) {
 		newCmds = append(newCmds, c)
 	}
 	a.Commands = newCmds
-
+	if a.AllowDuplicateArgs || a.RelaxedArgsOrdering {
+		a.Flags = deduplicateFlags(a.Flags)
+	}
 	set, err := a.newFlagSet()
 	if err != nil {
 		return err
 	}
 
 	err = parseIter(set, a, ctx.Args().Tail(), ctx.shellComplete)
+
+
 	nerr := normalizeFlags(a.Flags, set)
 	context := NewContext(a, set, ctx)
 
@@ -446,6 +468,9 @@ func (a *App) RunAsSubcommand(ctx *Context) (err error) {
 func (a *App) Command(name string) *Command {
 	for _, c := range a.Commands {
 		if c.HasName(name) {
+			if a.RelaxedArgsOrdering {
+				c.Flags = deduplicateFlags(append(a.Flags,c.Flags...))
+			}
 			return c
 		}
 	}
